@@ -8,8 +8,9 @@ also builds its model covariance through the lags.
 
 from .grid import Grid, azel
 from .lattice import Lattice
+from .manifold import Manifold
 from .methods import bartlett, capon, covariance, iaa, music
 
 __version__ = "0.2.0"
 
-__all__ = ["Grid", "Lattice", "azel", "bartlett", "capon", "covariance", "iaa", "music", "__version__"]
+__all__ = ["Grid", "Lattice", "Manifold", "azel", "bartlett", "capon", "covariance", "iaa", "music", "__version__"]

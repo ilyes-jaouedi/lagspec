@@ -26,7 +26,9 @@ v0.2:
   period, chirp-z for a zoom), chosen automatically from measured crossovers;
 - quadratic forms a(u)ᴴ M a(u), linear forms a(u)ᴴ y, and the reverse operation
   Σ_k p_k a(u_k) a(u_k)ᴴ (model covariance from a spectrum);
-- Bartlett, Capon with diagonal loading, MUSIC, and IAA.
+- Bartlett, Capon with diagonal loading, MUSIC, and IAA;
+- calibrated manifolds: steering vectors expanded on spatial harmonics, fitted from a
+  measured table in one linear solve, with every method still on the fast engine.
 
 Every result is tested against the explicit steering-vector computation.
 
@@ -36,8 +38,8 @@ Every result is tested against the explicit steering-vector computation.
 | a(u)ᴴ M a(u), 256-element line, 4096-point grid | about 2000× |
 | IAA, 4 × 4 array, 32 matrices, 61 × 61 grid, 10 iterations | about 100× |
 
-Planned: amplitude Capon / APES with spatial smoothing, a manifold model with extra
-spatial harmonics (angle-dependent calibration), and array-API support (CuPy, PyTorch).
+Planned: amplitude Capon / APES with spatial smoothing, and array-API support (CuPy,
+PyTorch).
 
 ## Install
 
@@ -65,6 +67,15 @@ p_iaa = ls.iaa(R[:8], lat, grid, n_iter=15)    # first 8 range bins
 az, el = ls.azel(*grid.mesh())               # angles of the grid points
 ```
 
+With a measured steering table (rows `table`, directions `points`), a calibrated
+manifold replaces the lattice in every method:
+
+```python
+man = ls.Manifold.fit(table, points, lat, extra=1)
+print(man.off_model(table_test, points_test))      # off-model energy on held-out directions
+p_capon = ls.capon(R, man, grid, loading=1e-3)
+```
+
 Any matrix or vector can go through the engine directly: `lat.quad(M, grid)`,
 `lat.linear(y, grid)`, `lat.covariance_from_spectrum(p, grid)`.
 
@@ -72,7 +83,8 @@ Any matrix or vector can go through the engine directly: `lat.quad(M, grid)`,
 
 See [docs/theory.md](docs/theory.md): the lag sums, why a grid uniform in direction
 cosines makes the evaluation exact, the matrix-product, FFT and chirp-z paths,
-calibration gains, linear forms, the model covariance and IAA, and the cost model.
+calibration gains, linear forms, the model covariance and IAA, calibrated manifolds,
+and the cost model.
 
 ## Prior work
 

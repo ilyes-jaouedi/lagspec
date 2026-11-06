@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Calibrated manifolds (manifold separation): `Manifold`, steering vectors a(u) = G h(u)
+  on spatial harmonics, accepted by every method; `Manifold.fit` from a measured table
+  in one linear solve (per-direction scale free), `Manifold.off_model`.
+- IAA normalises by |a(u)|² per direction (needed on a manifold).
+
 ## 0.2.0
 
 - One-axis forward and adjoint transforms shared by every form (`lagspec.transform`).

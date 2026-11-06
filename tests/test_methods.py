@@ -54,7 +54,7 @@ def iaa_direct(R, lat, grid, n_iter, loading):
     """IAA with explicit steering vectors (reference)"""
     A = lat.steering(grid.points())  # (P, N)
     n = A.shape[1]
-    norm = np.sum(np.abs(A[0]) ** 2)
+    norm = np.sum(np.abs(A) ** 2, 1)  # per direction (constant on a lattice)
     q = lambda M: np.real(np.einsum("pi,...ij,pj->...p", A.conj(), M, A))  # noqa: E731
     p = np.maximum(q(R), 0) / norm**2
     for _ in range(n_iter):

@@ -119,7 +119,43 @@ and two evaluations on the grid. The grid is IAA's dictionary of candidate direc
 it must cover every direction a source can come from (`Grid.periodic` covers all of
 them), finely enough.
 
-## 7. Cost summary
+## 7. Calibrated manifolds (manifold separation)
+
+A real array departs from the ideal lattice: per-element gains (exact, §3), but also
+element patterns and coupling that differ from element to element and vary with angle.
+Following Belloni, Richter and Koivunen (2007), expand the measured steering vectors on
+spatial harmonics h_q(u) = exp(j κ q·u), q on an integer box slightly wider than the
+element positions:
+
+    a(u) = G h(u),   G of size N × H
+
+Then every form reduces to the same form on the harmonics, which are a lattice:
+
+    a(u)ᴴ M a(u) = h(u)ᴴ (Gᴴ M G) h(u)
+    a(u)ᴴ y      = h(u)ᴴ (Gᴴ y)
+    Σ_k p_k a(u_k) a(u_k)ᴴ = G (Σ_k p_k h(u_k) h(u_k)ᴴ) Gᴴ
+
+so the engine applies unchanged, and still exactly. An ideal lattice is the case where
+row n of G has a single entry, g_n at q = p_n (`Manifold.from_lattice`). The cost grows
+with the number of harmonics H instead of N (the lag box widens by the extra harmonics).
+
+**Fitting G from a measured table.** A table gives the steering vector t_p at known
+directions u_p, each up to an unknown complex factor (the reflector, the common element
+pattern, the phase reference). Only the direction of t_p is meaningful, so `Manifold.fit`
+minimises the energy of the model outside it:
+
+    min_G Σ_p ‖P_p G h(u_p)‖² + λ ‖G − G_0‖²,   P_p = I − t̂_p t̂_pᴴ
+
+which is linear in G: one solve of size N H, no iteration. The ridge λ pulls G towards
+the nominal lattice G_0, so that the extra harmonics only take what the data support. A
+scalar function common to all elements is not identifiable from such a table, and it
+does not need to be: it only rescales the spectrum per direction.
+
+`Manifold.off_model(table, points)` returns the off-model energy ε of each measured
+vector. One source cannot show a Capon peak-to-floor above about 1/ε, which makes ε the
+figure to check on held-out directions before trusting a calibration.
+
+## 8. Cost summary
 
 For B matrices (batch), K = K_1 … K_D grid points:
 
@@ -134,14 +170,14 @@ The spectrum step usually dominates the direct computation. Here it shrinks by a
 N² / Λ_D. The inverse or eigendecomposition is untouched; for small arrays it is cheap
 and batched.
 
-## 8. Scope and limits
+## 9. Scope and limits
 
 - **Lattice geometry required.** For positions that are not integers, `quad_direct` gives
   the same API by explicit steering vectors.
 - **Errors that are the same for every element at a given angle** (a common element
   pattern) only scale the spectrum per grid point. Per-element gains are exact (§3).
-  Angle-dependent errors that differ between elements are outside the model. A manifold
-  expanded on a few extra spatial harmonics would keep a Fourier structure (planned).
+  Angle-dependent errors that differ between elements are exact when the harmonics of a
+  `Manifold` capture them (§7); what remains is the off-model energy.
 
 ## References
 
@@ -158,6 +194,8 @@ and batched.
 - T. Yardibi, J. Li, P. Stoica, M. Xue and A. B. Baggeroer, "Source localization and
   sensing: a nonparametric iterative adaptive approach based on weighted least
   squares," IEEE Trans. Aerosp. Electron. Syst., 46(1), 2010.
+- F. Belloni, A. Richter and V. Koivunen, "DoA estimation via manifold separation for
+  arbitrary array structures," IEEE Trans. Signal Process., 55(10), 2007.
 - L. R. Rabiner, R. W. Schafer and C. M. Rader, "The chirp z-transform algorithm," IEEE
   Trans. Audio Electroacoust., 17(2), 1969.
 - G.-O. Glentis and A. Jakobsson, "Superfast approximative implementation of the IAA

@@ -8,7 +8,8 @@ lag-domain engine:
     IAA        iterated: the model covariance sum_k p_k a_k a_k^H (an adjoint transform
                at the lags) and two quadratic forms per iteration
 
-All functions accept a batch of covariances (..., N, N), e.g. one per range bin.
+All functions accept a batch of covariances (..., N, N), e.g. one per range bin, and a
+Lattice or a calibrated Manifold.
 """
 
 import numpy as np
@@ -70,7 +71,7 @@ def iaa(R, lattice, grid, n_iter=15, loading=1e-9, support=None, tol=None, metho
     """
     R = np.asarray(R)
     n = R.shape[-1]
-    norm = n if lattice.gains is None else float(np.sum(np.abs(lattice.gains) ** 2))
+    norm = lattice.quad(np.eye(n), grid, method)  # |a(u)|^2 (varies with u on a Manifold)
     mask = 1.0 if support is None else np.asarray(support, dtype=float)
     p = np.maximum(lattice.quad(R, grid, method), 0.0) / norm**2 * mask
     eye = np.eye(n)
