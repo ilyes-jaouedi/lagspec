@@ -70,7 +70,7 @@ array response (u ∈ [−1, 1) for κ = π). Then
 so the axis is evaluated by scattering the phased lags into K bins (lags that alias onto
 the same bin add up, which is still exact) and one inverse FFT of size K. The cost per
 axis is O(K log K), independent of the array size. This path pays off for large arrays.
-`method="auto"` chooses it when Λ_d > 8 log₂ K_d (`FFT_LAG_FACTOR`, set from `benchmarks/bench_quad.py`): below that, the small matrix product is faster.
+`method="auto"` chooses it when Λ_d > 8 log₂ K_d (`transform.FFT_FACTOR`, set from `benchmarks/bench_quad.py`): below that, the small matrix product is faster.
 
 **Exactness.** Both paths are exact, not interpolations: the result equals the explicit
 steering-vector computation to rounding error. The tests check this for linear,

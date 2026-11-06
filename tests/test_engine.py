@@ -97,12 +97,12 @@ def test_wrong_matrix_size_rejected():
 @pytest.mark.parametrize("name", ["ura4x4", "mimo_repeated", "3d"])
 def test_index_accumulation_path(monkeypatch, name):
     """the large-array lag sums (no dense summation matrix) give the same result"""
-    import lagspec.lattice as L
+    import lagspec.transform as T
 
-    monkeypatch.setattr(L, "DENSE_SUM_LIMIT", 0)
+    monkeypatch.setattr(T, "DENSE_LIMIT", 0)
     lat0, grids = LATTICES[name]
     lat = Lattice(lat0.positions, lat0.spacing)
-    assert lat._sum is None
+    assert lat._lag_sum.matrix is None
     M = general(lat.n_elements, (3,))
     np.testing.assert_allclose(lat.lag_sums(M), lat0.lag_sums(M), atol=1e-12)
     np.testing.assert_allclose(lat.lag_sums(M.real), lat0.lag_sums(M.real), atol=1e-12)
