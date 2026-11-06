@@ -28,7 +28,9 @@ v0.2:
   Σ_k p_k a(u_k) a(u_k)ᴴ (model covariance from a spectrum);
 - Bartlett, Capon with diagonal loading, MUSIC, and IAA;
 - calibrated manifolds: steering vectors expanded on spatial harmonics, fitted from a
-  measured table in one linear solve, with every method still on the fast engine.
+  measured table in one linear solve, with every method still on the fast engine;
+- array API: NumPy by default, and CuPy, PyTorch or any array-API library through
+  `array-api-compat` (results stay on the input's device, in its precision).
 
 Every result is tested against the explicit steering-vector computation.
 
@@ -38,8 +40,7 @@ Every result is tested against the explicit steering-vector computation.
 | a(u)ᴴ M a(u), 256-element line, 4096-point grid | about 2000× |
 | IAA, 4 × 4 array, 32 matrices, 61 × 61 grid, 10 iterations | about 100× |
 
-Planned: amplitude Capon / APES with spatial smoothing, and array-API support (CuPy,
-PyTorch).
+Planned: amplitude Capon / APES with spatial smoothing.
 
 ## Install
 
@@ -47,7 +48,11 @@ PyTorch).
 pip install git+https://github.com/<user>/lagspec
 ```
 
-Requires Python 3.9+ and NumPy.
+Requires Python 3.9+ and NumPy. For CuPy, PyTorch or other array-API libraries:
+
+```
+pip install "lagspec[array-api] @ git+https://github.com/<user>/lagspec"
+```
 
 ## Example
 
@@ -74,6 +79,15 @@ manifold replaces the lattice in every method:
 man = ls.Manifold.fit(table, points, lat, extra=1)
 print(man.off_model(table_test, points_test))      # off-model energy on held-out directions
 p_capon = ls.capon(R, man, grid, loading=1e-3)
+```
+
+The same calls accept arrays of any array-API library; the work runs where the input
+lives:
+
+```python
+import torch
+R_gpu = torch.as_tensor(R, device="cuda")
+p = ls.capon(R_gpu, lat, grid, loading=1e-3)       # torch tensor on the GPU
 ```
 
 Any matrix or vector can go through the engine directly: `lat.quad(M, grid)`,

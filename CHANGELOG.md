@@ -1,11 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - Calibrated manifolds (manifold separation): `Manifold`, steering vectors a(u) = G h(u)
   on spatial harmonics, accepted by every method; `Manifold.fit` from a measured table
   in one linear solve (per-direction scale free), `Manifold.off_model`.
 - IAA normalises by |a(u)|² per direction (needed on a manifold).
+- Array API: CuPy, PyTorch and other array-API libraries through `array-api-compat`
+  (optional extra `array-api`); results keep the input's namespace, device and
+  precision. The FFT path scatters by pad, fold and roll (no indexed assignment).
+  Tested on array-api-strict and PyTorch.
 
 ## 0.2.0
 

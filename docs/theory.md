@@ -170,7 +170,19 @@ The spectrum step usually dominates the direct computation. Here it shrinks by a
 N² / Λ_D. The inverse or eigendecomposition is untouched; for small arrays it is cheap
 and batched.
 
-## 9. Scope and limits
+## 9. Array libraries and devices
+
+NumPy inputs take the plain NumPy path. Any other array (CuPy, PyTorch, JAX, ...)
+selects its namespace through `array-api-compat`, and the engine uses only operations of
+the array API standard: matrix products, `fft`, `linalg.inv` and `linalg.eigh`, `take`,
+`roll` and reshapes. The FFT path scatters the lags by padding, folding the aliased
+ones and rolling, without indexed assignment. The constants (transform matrices,
+phases, accumulation matrices) are built once with NumPy and moved to the input's
+device and precision: single-precision inputs are computed in complex64. The tests run
+every form and method on `array-api-strict` (the reference implementation, which rejects
+anything outside the standard) and on PyTorch.
+
+## 10. Scope and limits
 
 - **Lattice geometry required.** For positions that are not integers, `quad_direct` gives
   the same API by explicit steering vectors.
