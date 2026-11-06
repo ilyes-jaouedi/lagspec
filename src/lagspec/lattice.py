@@ -1,6 +1,6 @@
 """
 Arrays whose elements sit on an integer lattice, and the lag-domain engine that
-evaluates a(u)^H M a(u) on a whole grid at once.
+evaluates a(u)^H M a(u) (and the linear forms a(u)^H y) on a whole grid at once.
 
 Element n sits at the integer position p_n (in units of the lattice step) and has the
 steering phase exp(j kappa p_n . u), kappa = 2 pi spacing / wavelength. Then
@@ -54,6 +54,11 @@ class Lattice:
         self.lag_shape = tuple(int(x) for x in diff.max(axis=0) - self.lag_min + 1)
         self._lag_index = np.ravel_multi_index(tuple((diff - self.lag_min).T), self.lag_shape)
         self._lag_sum = T.Accumulator(self._lag_index, np.prod(self.lag_shape))
+        # element positions in their bounding box (linear forms)
+        self.pos_min = self.positions.min(axis=0)
+        self.pos_shape = tuple(int(x) for x in self.positions.max(axis=0) - self.pos_min + 1)
+        pos_index = np.ravel_multi_index(tuple((self.positions - self.pos_min).T), self.pos_shape)
+        self._pos_sum = T.Accumulator(pos_index, np.prod(self.pos_shape))
 
     # -- constructors ---------------------------------------------------------------
 
@@ -131,6 +136,20 @@ class Lattice:
         q = self.evaluate(self.lag_sums(M), grid, method)
         return q.real if real else q
 
+    def linear(self, y, grid, method="auto"):
+        """
+        a(u)^H y for every direction u of the grid and every vector of the batch:
+        (..., N) -> (..., *grid.shape). For snapshots X of shape (N, S), pass X.T.
+        """
+        y = np.asarray(y)
+        n = self.n_elements
+        if y.shape[-1] != n:
+            raise ValueError(f"expected (..., {n}) vectors, got {y.shape}")
+        if self.gains is not None:
+            y = self.gains.conj() * y
+        coef = self._pos_sum(y).reshape(y.shape[:-1] + self.pos_shape)
+        return self._series(coef, self.pos_min, self.pos_shape, grid, -1, method, T.forward)
+
     # -- direct reference -----------------------------------------------------------
 
     def steering(self, points):
@@ -146,6 +165,11 @@ class Lattice:
         q = np.einsum("pi,...ij,pj->...p", A.conj(), M, A, optimize=True)
         q = q.reshape(M.shape[:-2] + grid.shape)
         return q.real if real else q
+
+    def linear_direct(self, y, grid):
+        """the same as linear, by explicit steering vectors"""
+        y = np.asarray(y)
+        return (y @ self.steering(grid.points()).conj().T).reshape(y.shape[:-1] + grid.shape)
 
     # -- helpers --------------------------------------------------------------------
 

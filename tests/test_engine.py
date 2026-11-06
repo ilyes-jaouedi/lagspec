@@ -106,3 +106,15 @@ def test_index_accumulation_path(monkeypatch, name):
     M = general(lat.n_elements, (3,))
     np.testing.assert_allclose(lat.lag_sums(M), lat0.lag_sums(M), atol=1e-12)
     np.testing.assert_allclose(lat.lag_sums(M.real), lat0.lag_sums(M.real), atol=1e-12)
+
+
+@pytest.mark.parametrize("name", LATTICES)
+def test_linear_matches_direct(name):
+    lat0, grids = LATTICES[name]
+    g = np.exp(1j * RNG.uniform(-0.5, 0.5, lat0.n_elements))
+    for lat in (lat0, Lattice(lat0.positions, lat0.spacing, gains=g)):
+        y = general(lat.n_elements, (2,))[..., 0]  # (2, N)
+        for grid in grids:
+            ref = lat.linear_direct(y, grid)
+            np.testing.assert_allclose(lat.linear(y, grid), ref, atol=1e-9 * np.abs(ref).max())
+    np.testing.assert_allclose(lat0.linear(y, grids[0], "fft"), lat0.linear_direct(y, grids[0]), atol=1e-9 * np.abs(y).sum())
