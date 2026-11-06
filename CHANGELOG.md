@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- GPU tests (`tests/test_gpu.py`, PyTorch CUDA and CuPy) and benchmark
+  (`benchmarks/bench_gpu.py`); verified on a Tesla V100.
+
 ## 0.3.0
 
 - Calibrated manifolds (manifold separation): `Manifold`, steering vectors a(u) = G h(u)

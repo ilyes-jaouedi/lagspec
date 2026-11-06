@@ -180,7 +180,21 @@ ones and rolling, without indexed assignment. The constants (transform matrices,
 phases, accumulation matrices) are built once with NumPy and moved to the input's
 device and precision: single-precision inputs are computed in complex64. The tests run
 every form and method on `array-api-strict` (the reference implementation, which rejects
-anything outside the standard) and on PyTorch.
+anything outside the standard) and on PyTorch; `tests/test_gpu.py` runs them on a CUDA
+GPU through PyTorch and CuPy (verified on a Tesla V100, all tests passing).
+
+Measured with `benchmarks/bench_gpu.py` (Tesla V100 against NumPy on one CPU node, 128
+covariances of a 4 × 4 or 8 × 8 array):
+
+| Case | NumPy (CPU) | PyTorch c128 | PyTorch c64 |
+|---|---|---|---|
+| Capon, 4 × 4, 61 × 61 grid | 6.9 ms | 1.5 ms | 1.5 ms |
+| Capon, 4 × 4, 256 × 256 grid | 108.8 ms | 2.2 ms | 1.8 ms |
+| Capon, 8 × 8, 256 × 256 grid | 161.3 ms | 4.5 ms | 3.7 ms |
+| IAA, 10 iterations, 4 × 4, 61 × 61 grid | 165.1 ms | 34.7 ms | 35.5 ms |
+
+The GPU pays off on large grids (40–60×); small problems are bound by per-call latency
+(about 5×).
 
 ## 10. Scope and limits
 

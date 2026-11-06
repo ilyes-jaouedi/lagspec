@@ -30,7 +30,8 @@ v0.2:
 - calibrated manifolds: steering vectors expanded on spatial harmonics, fitted from a
   measured table in one linear solve, with every method still on the fast engine;
 - array API: NumPy by default, and CuPy, PyTorch or any array-API library through
-  `array-api-compat` (results stay on the input's device, in its precision).
+  `array-api-compat` (results stay on the input's device, in its precision); tested on
+  a CUDA GPU (Tesla V100) with PyTorch and CuPy.
 
 Every result is tested against the explicit steering-vector computation.
 
