@@ -16,6 +16,7 @@ exact as long as they are captured by the harmonics.
 
 import numpy as np
 
+from . import _backend as B
 from .lattice import Lattice
 
 # largest (N * H)^2 linear system of the exact fit; above it, alternating least squares
@@ -134,17 +135,27 @@ class Manifold:
 
     def quad(self, M, grid, method="auto", real=True):
         """a(u)^H M a(u) on the grid, (..., N, N) -> (..., *grid.shape)"""
-        M = np.asarray(M)
-        return self.harmonics.quad(self.G.conj().T @ M @ self.G, grid, method, real)
+        xp, M, G = self._prepare(M)
+        GH = np.swapaxes(G.conj(), -1, -2) if xp is np else xp.matrix_transpose(xp.conj(G))
+        return self.harmonics.quad(GH @ M @ G, grid, method, real)
 
     def linear(self, y, grid, method="auto"):
         """a(u)^H y on the grid, (..., N) -> (..., *grid.shape)"""
-        return self.harmonics.linear(np.asarray(y) @ self.G.conj(), grid, method)
+        xp, y, G = self._prepare(y)
+        return self.harmonics.linear(y @ (G.conj() if xp is np else xp.conj(G)), grid, method)
 
     def covariance_from_spectrum(self, p, grid, method="auto"):
         """sum_k p_k a(u_k) a(u_k)^H, (..., *grid.shape) -> (..., N, N)"""
         Rh = self.harmonics.covariance_from_spectrum(p, grid, method)
-        return self.G @ Rh @ self.G.conj().T
+        xp, Rh, G = self._prepare(Rh)
+        GH = np.swapaxes(G.conj(), -1, -2) if xp is np else xp.matrix_transpose(xp.conj(G))
+        return G @ Rh @ GH
+
+    def _prepare(self, x):
+        """(namespace, x, G in x's namespace, device and precision)"""
+        xp = B.namespace(x)
+        x = np.asarray(x) if xp is np else x
+        return xp, x, B.asarray(xp, self.G, x, B.complex_dtype(xp, x))
 
     def steering(self, points):
         """(P, D) direction cosines -> (P, N) steering vectors"""

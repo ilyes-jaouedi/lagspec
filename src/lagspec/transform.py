@@ -13,6 +13,8 @@ engine applies them one axis at a time on the last axis of an array.
 
 import numpy as np
 
+from . import _backend as B
+
 # method="auto" uses the FFT on a periodic axis when the number of offsets exceeds
 # FFT_FACTOR * log2(grid size): below that, the small BLAS product is faster
 # (benchmarks/bench_quad.py)
@@ -52,67 +54,89 @@ def _fft_length(n):
     return 1 << int(np.ceil(np.log2(max(n, 2))))
 
 
-def _chirp(x, theta, n_out):
+def _concat(xp, arrays):
+    return np.concatenate(arrays, axis=-1) if xp is np else xp.concat(arrays, axis=-1)
+
+
+def _pad(xp, x, n):
+    """zero-pad the last axis of x to length n"""
+    extra = n - x.shape[-1]
+    if extra == 0:
+        return x
+    zeros = xp.zeros(x.shape[:-1] + (extra,), dtype=x.dtype, **_dev(xp, x))
+    return _concat(xp, [x, zeros])
+
+
+def _dev(xp, x):
+    return {} if xp is np else {"device": B.device(x)}
+
+
+def _const(xp, a, like):
+    return B.asarray(xp, a, like, dtype=like.dtype)
+
+
+def _chirp(xp, x, theta, n_out):
     """y_j = sum_i x_i exp(j theta i j), j = 0 .. n_out - 1, along the last axis (Bluestein)"""
     n_in = x.shape[-1]
     L = _fft_length(n_in + n_out - 1)
     i = np.arange(n_in, dtype=float)
-    a = np.zeros(x.shape[:-1] + (L,), dtype=complex)
-    a[..., :n_in] = x * np.exp(0.5j * theta * i**2)
+    a = _pad(xp, x * _const(xp, np.exp(0.5j * theta * i**2), x), L)
     m = np.arange(-(n_in - 1), n_out)
     b = np.zeros(L, dtype=complex)
     b[m % L] = np.exp(-0.5j * theta * m.astype(float) ** 2)  # i j = (i^2 + j^2 - (j - i)^2) / 2
-    conv = np.fft.ifft(np.fft.fft(a, axis=-1) * np.fft.fft(b), axis=-1)
+    conv = xp.fft.ifft(xp.fft.fft(a, axis=-1) * _const(xp, np.fft.fft(b), x), axis=-1)
     j = np.arange(n_out, dtype=float)
-    return conv[..., :n_out] * np.exp(0.5j * theta * j**2)
+    return conv[..., :n_out] * _const(xp, np.exp(0.5j * theta * j**2), x)
 
 
-def _fft_sign(x, sign, axis=-1):
-    """sum_k x_k exp(sign j 2 pi k m / K) for m = 0 .. K - 1"""
-    n = x.shape[axis]
-    return np.fft.ifft(x, axis=axis) * n if sign > 0 else np.fft.fft(x, axis=axis)
+def _fft_sign(xp, x, sign):
+    """sum_k x_k exp(sign j 2 pi k m / K) for m = 0 .. K - 1, along the last axis"""
+    n = x.shape[-1]
+    return xp.fft.ifft(x, axis=-1) * n if sign > 0 else xp.fft.fft(x, axis=-1)
 
 
 def forward(c, offsets, axis, kappa, sign, method):
-    """last axis of c: coefficients at `offsets` -> values on the grid axis"""
+    """last axis of c (complex): coefficients at `offsets` -> values on the grid axis"""
     start, step, num = axis
     path = choose(method, kappa, axis, len(offsets))
+    xp = B.namespace(c)
     if path == "matmul":
-        return c @ np.exp(sign * 1j * kappa * np.outer(offsets, start + step * np.arange(num)))
+        return c @ _const(xp, np.exp(sign * 1j * kappa * np.outer(offsets, start + step * np.arange(num))), c)
     if path == "czt":
         # o = o_0 + i: exp(j kappa o u_k) = exp(j kappa o_0 u_k) exp(j kappa i start) exp(j kappa step i k)
         i = offsets - offsets[0]
-        y = _chirp(c * np.exp(sign * 1j * kappa * i * start), sign * kappa * step, num)
-        return y * np.exp(sign * 1j * kappa * offsets[0] * (start + step * np.arange(num)))
-    # exp(j kappa o (start + k step)) = exp(j kappa o start) exp(j 2 pi o k / num)
-    phased = c * np.exp(sign * 1j * kappa * offsets * start)
-    out = np.zeros(c.shape[:-1] + (num,), dtype=complex)
-    bins = offsets % num
-    if len(offsets) <= num:  # consecutive offsets: distinct bins
-        out[..., bins] = phased
-    else:
-        for j, k in enumerate(bins):  # offsets that alias onto one bin add up (exact)
-            out[..., k] += phased[..., j]
-    return _fft_sign(out, sign)
+        y = _chirp(xp, c * _const(xp, np.exp(sign * 1j * kappa * i * start), c), sign * kappa * step, num)
+        return y * _const(xp, np.exp(sign * 1j * kappa * offsets[0] * (start + step * np.arange(num))), c)
+    # exp(j kappa o (start + k step)) = exp(j kappa o start) exp(j 2 pi o k / num): the
+    # offsets go to bins o mod num (consecutive, so: pad, fold the aliased ones, roll)
+    phased = c * _const(xp, np.exp(sign * 1j * kappa * offsets * start), c)
+    reps = -(-len(offsets) // num)
+    folded = _pad(xp, phased, reps * num)
+    if reps > 1:  # offsets that alias onto one bin add up (exact)
+        folded = xp.sum(xp.reshape(folded, folded.shape[:-1] + (reps, num)), axis=-2)
+    return _fft_sign(xp, xp.roll(folded, int(offsets[0] % num), axis=-1), sign)
 
 
 def adjoint(y, offsets, axis, kappa, sign, method):
-    """last axis of y: values on the grid axis -> coefficients at `offsets`"""
+    """last axis of y (complex): values on the grid axis -> coefficients at `offsets`"""
     start, step, num = axis
     path = choose(method, kappa, axis, len(offsets))
+    xp = B.namespace(y)
     if path == "matmul":
-        return y @ np.exp(sign * 1j * kappa * np.outer(start + step * np.arange(num), offsets))
+        return y @ _const(xp, np.exp(sign * 1j * kappa * np.outer(start + step * np.arange(num), offsets)), y)
     if path == "czt":
-        x = np.asarray(y, dtype=complex) * np.exp(sign * 1j * kappa * offsets[0] * step * np.arange(num))
-        return _chirp(x, sign * kappa * step, len(offsets)) * np.exp(sign * 1j * kappa * offsets * start)
-    full = _fft_sign(np.asarray(y, dtype=complex), sign)
-    return full[..., offsets % num] * np.exp(sign * 1j * kappa * offsets * start)
+        x = y * _const(xp, np.exp(sign * 1j * kappa * offsets[0] * step * np.arange(num)), y)
+        return _chirp(xp, x, sign * kappa * step, len(offsets)) * _const(xp, np.exp(sign * 1j * kappa * offsets * start), y)
+    full = _fft_sign(xp, y, sign)
+    idx = B.asarray(xp, offsets % num, y)
+    return xp.take(full, idx, axis=-1) * _const(xp, np.exp(sign * 1j * kappa * offsets * start), y)
 
 
 class Accumulator:
     """
     sums the last axis of an array (n_in entries) into n_out bins, entry i going to bin
-    index[i]: one product with a 0/1 matrix when small, a bincount otherwise
+    index[i]: one product with a 0/1 matrix when small (always for non-NumPy arrays, the
+    matrix cached per namespace, device and dtype), a bincount otherwise
     """
 
     def __init__(self, index, n_out):
@@ -121,10 +145,23 @@ class Accumulator:
         n_in = len(self.index)
         self.matrix = None
         if n_in * self.n_out <= DENSE_LIMIT:
-            self.matrix = np.zeros((n_in, self.n_out))
-            self.matrix[np.arange(n_in), self.index] = 1.0
+            self.matrix = self._dense()
+        self._cache = {}
+
+    def _dense(self):
+        m = np.zeros((len(self.index), self.n_out))
+        m[np.arange(len(self.index)), self.index] = 1.0
+        return m
 
     def __call__(self, x):
+        xp = B.namespace(x)
+        if xp is not np:
+            key = (xp.__name__, str(B.device(x)), str(x.dtype))
+            if key not in self._cache:
+                m = self.matrix if self.matrix is not None else self._dense()
+                self._cache[key] = B.asarray(xp, m, x, dtype=x.dtype)
+            flat = xp.reshape(x, (-1, x.shape[-1]))
+            return xp.reshape(flat @ self._cache[key], x.shape[:-1] + (self.n_out,))
         x = np.asarray(x)
         batch = x.shape[:-1]
         flat = x.reshape(-1, x.shape[-1])

@@ -16,8 +16,28 @@ matrix product or with an FFT. See docs/theory.md.
 
 import numpy as np
 
+from . import _backend as B
 from . import transform as T
 from .grid import Grid
+
+
+
+def _prepare(x):
+    """(namespace, array): NumPy inputs (and Python sequences) as NumPy arrays"""
+    xp = B.namespace(x)
+    return xp, (np.asarray(x) if xp is np else x)
+
+
+def _cdtype(xp, x):
+    return B.complex_dtype(xp, x)
+
+
+def _complex(xp, x):
+    """x as a complex array of its own precision"""
+    dtype = _cdtype(xp, x)
+    if x.dtype == dtype:
+        return x
+    return x.astype(dtype) if xp is np else xp.astype(x, dtype)
 
 
 class Lattice:
@@ -107,14 +127,14 @@ class Lattice:
 
     def lag_sums(self, M):
         """(..., N, N) matrices -> (..., *lag_shape) lag sums L(l)"""
-        M = np.asarray(M)
+        xp, M = _prepare(M)
         n = self.n_elements
-        if M.shape[-2:] != (n, n):
-            raise ValueError(f"expected (..., {n}, {n}) matrices, got {M.shape}")
+        if tuple(M.shape[-2:]) != (n, n):
+            raise ValueError(f"expected (..., {n}, {n}) matrices, got {tuple(M.shape)}")
         if self.gains is not None:
-            M = self.gains.conj()[:, None] * M * self.gains[None, :]
-        lags = self._lag_sum(M.reshape(M.shape[:-2] + (n * n,)))
-        return lags.reshape(M.shape[:-2] + self.lag_shape)
+            M = _complex(xp, M) * B.asarray(xp, self.gains.conj()[:, None] * self.gains[None, :], M, _cdtype(xp, M))
+        lags = self._lag_sum(xp.reshape(M, tuple(M.shape[:-2]) + (n * n,)))
+        return xp.reshape(lags, tuple(M.shape[:-2]) + self.lag_shape)
 
     def evaluate(self, lags, grid, method="auto"):
         """
@@ -123,7 +143,8 @@ class Lattice:
         method  "matmul": one small matrix product per axis (any uniform grid)
                 "fft": scatter the lags onto the grid and inverse FFT (needs a periodic
                        grid, see Grid.periodic)
-                "auto": FFT on the periodic axes where it is cheaper
+                "czt": chirp-z transform (any uniform grid; pays off for long arrays)
+                "auto": the cheapest path per axis, from measured crossovers
         """
         return self._series(lags, self.lag_min, self.lag_shape, grid, +1, method, T.forward)
 
@@ -131,23 +152,24 @@ class Lattice:
         """
         a(u)^H M a(u) for every direction u of the grid and every matrix of the batch:
         (..., N, N) -> (..., *grid.shape). real=True returns the real part (the value is
-        real for Hermitian M).
+        real for Hermitian M). NumPy arrays, or any array-API array (CuPy, PyTorch, ...)
+        with array-api-compat installed; the result has the input's namespace and device.
         """
         q = self.evaluate(self.lag_sums(M), grid, method)
-        return q.real if real else q
+        return B.namespace(q).real(q) if real else q
 
     def linear(self, y, grid, method="auto"):
         """
         a(u)^H y for every direction u of the grid and every vector of the batch:
         (..., N) -> (..., *grid.shape). For snapshots X of shape (N, S), pass X.T.
         """
-        y = np.asarray(y)
+        xp, y = _prepare(y)
         n = self.n_elements
         if y.shape[-1] != n:
-            raise ValueError(f"expected (..., {n}) vectors, got {y.shape}")
+            raise ValueError(f"expected (..., {n}) vectors, got {tuple(y.shape)}")
         if self.gains is not None:
-            y = self.gains.conj() * y
-        coef = self._pos_sum(y).reshape(y.shape[:-1] + self.pos_shape)
+            y = _complex(xp, y) * B.asarray(xp, self.gains.conj(), y, _cdtype(xp, y))
+        coef = xp.reshape(self._pos_sum(y), tuple(y.shape[:-1]) + self.pos_shape)
         return self._series(coef, self.pos_min, self.pos_shape, grid, -1, method, T.forward)
 
     def covariance_from_spectrum(self, p, grid, method="auto"):
@@ -158,11 +180,13 @@ class Lattice:
         covariance-fitting methods).
         """
         c = self._series(p, self.lag_min, self.lag_shape, grid, -1, method, T.adjoint)
-        batch = c.shape[: c.ndim - self.ndim]
+        xp = B.namespace(c)
+        batch = tuple(c.shape[: c.ndim - self.ndim])
         n = self.n_elements
-        R = c.reshape(batch + (-1,))[..., self._lag_index].reshape(batch + (n, n))
+        flat = xp.reshape(c, batch + (-1,))
+        R = xp.reshape(xp.take(flat, B.asarray(xp, self._lag_index, c), axis=-1), batch + (n, n))
         if self.gains is not None:
-            R = self.gains[:, None] * R * self.gains.conj()[None, :]
+            R = R * B.asarray(xp, self.gains[:, None] * self.gains.conj()[None, :], R, R.dtype)
         return R
 
     # -- direct reference -----------------------------------------------------------
@@ -205,16 +229,17 @@ class Lattice:
         axis of the last ndim axes of arr
         """
         self._check_grid(grid)
-        arr = np.asarray(arr, dtype=complex)
+        xp, arr = _prepare(arr)
+        arr = _complex(xp, arr)
         nb = arr.ndim - self.ndim
         expected = shape if transform is T.forward else grid.shape
-        if nb < 0 or arr.shape[nb:] != tuple(expected):
-            raise ValueError(f"expected (..., {tuple(expected)}), got {arr.shape}")
+        if nb < 0 or tuple(arr.shape[nb:]) != tuple(expected):
+            raise ValueError(f"expected (..., {tuple(expected)}), got {tuple(arr.shape)}")
         for d in range(self.ndim):
             offsets = offset_min[d] + np.arange(shape[d])
-            arr = np.moveaxis(arr, nb + d, -1)
+            arr = xp.moveaxis(arr, nb + d, -1)
             arr = transform(arr, offsets, grid.params[d], self.kappa, sign, method)
-            arr = np.moveaxis(arr, -1, nb + d)
+            arr = xp.moveaxis(arr, -1, nb + d)
         return arr
 
     def __repr__(self):

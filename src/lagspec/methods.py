@@ -14,13 +14,38 @@ Lattice or a calibrated Manifold.
 
 import numpy as np
 
+from . import _backend as B
+
 TINY = 1e-30
+
+
+def _prepare(x):
+    xp = B.namespace(x)
+    return xp, (np.asarray(x) if xp is np else x)
+
+
+def _herm(xp, x):
+    """conjugate transpose of the last two axes"""
+    return np.swapaxes(x.conj(), -1, -2) if xp is np else xp.matrix_transpose(xp.conj(x))
+
+
+def _eye(xp, n, like):
+    return np.eye(n, dtype=like.dtype) if xp is np else xp.eye(n, dtype=like.dtype, device=B.device(like))
+
+
+def _trace(xp, R):
+    """real part of the trace of the last two axes"""
+    return np.real(np.trace(R, axis1=-2, axis2=-1)) if xp is np else xp.real(xp.linalg.trace(R))
+
+
+def _floor(xp, x, v):
+    return np.maximum(x, v) if xp is np else xp.maximum(x, xp.asarray(v, dtype=x.dtype, device=B.device(x)))
 
 
 def covariance(x):
     """(..., N, S) snapshots -> (..., N, N) sample covariance"""
-    x = np.asarray(x)
-    return x @ np.swapaxes(x.conj(), -1, -2) / x.shape[-1]
+    xp, x = _prepare(x)
+    return x @ _herm(xp, x) / x.shape[-1]
 
 
 def bartlett(R, lattice, grid, method="auto"):
@@ -33,23 +58,22 @@ def capon(R, lattice, grid, loading=0.0, method="auto"):
     Capon / MVDR power 1 / a^H (R + delta I)^-1 a, with diagonal loading
     delta = loading * trace(R) / N
     """
-    R = np.asarray(R)
+    xp, R = _prepare(R)
     n = R.shape[-1]
-    delta = loading * np.real(np.trace(R, axis1=-2, axis2=-1)) / n
-    Ri = np.linalg.inv(R + delta[..., None, None] * np.eye(n))
-    return 1.0 / np.maximum(lattice.quad(Ri, grid, method), TINY)
+    delta = loading * _trace(xp, R) / n
+    Ri = xp.linalg.inv(R + delta[..., None, None] * _eye(xp, n, R))
+    return 1.0 / _floor(xp, lattice.quad(Ri, grid, method), TINY)
 
 
 def music(R, lattice, grid, n_sources, method="auto"):
     """MUSIC pseudo-spectrum 1 / a^H E_n E_n^H a, E_n the N - n_sources noise eigenvectors"""
-    R = np.asarray(R)
+    xp, R = _prepare(R)
     n = R.shape[-1]
     if not 0 <= n_sources < n:
         raise ValueError(f"n_sources must be in [0, {n - 1}]")
-    _, V = np.linalg.eigh(R)  # ascending eigenvalues
+    V = xp.linalg.eigh(R)[1]  # ascending eigenvalues
     En = V[..., : n - n_sources]
-    P = En @ np.swapaxes(En.conj(), -1, -2)
-    return 1.0 / np.maximum(lattice.quad(P, grid, method), TINY)
+    return 1.0 / _floor(xp, lattice.quad(En @ _herm(xp, En), grid, method), TINY)
 
 
 def iaa(R, lattice, grid, n_iter=15, loading=1e-9, support=None, tol=None, method="auto"):
@@ -69,20 +93,20 @@ def iaa(R, lattice, grid, n_iter=15, loading=1e-9, support=None, tol=None, metho
     loading   relative diagonal loading of R_m, for numerical stability only
     tol       stop when the largest relative change of p falls below tol
     """
-    R = np.asarray(R)
+    xp, R = _prepare(R)
     n = R.shape[-1]
-    norm = lattice.quad(np.eye(n), grid, method)  # |a(u)|^2 (varies with u on a Manifold)
-    mask = 1.0 if support is None else np.asarray(support, dtype=float)
-    p = np.maximum(lattice.quad(R, grid, method), 0.0) / norm**2 * mask
-    eye = np.eye(n)
+    eye = _eye(xp, n, R)
+    norm = lattice.quad(eye, grid, method)  # |a(u)|^2 (varies with u on a Manifold)
+    mask = 1.0 if support is None else B.asarray(xp, np.asarray(support, dtype=float), norm, norm.dtype)
+    p = _floor(xp, lattice.quad(R, grid, method), 0.0) / norm**2 * mask
     for _ in range(n_iter):
         Rm = lattice.covariance_from_spectrum(p, grid, method)
-        delta = loading * np.real(np.trace(Rm, axis1=-2, axis2=-1)) / n
-        Ri = np.linalg.inv(Rm + delta[..., None, None] * eye)
+        delta = loading * _trace(xp, Rm) / n
+        Ri = xp.linalg.inv(Rm + delta[..., None, None] * _eye(xp, n, Rm))
         num = lattice.quad(Ri @ R @ Ri, grid, method)
         den = lattice.quad(Ri, grid, method)
-        p_new = np.maximum(num, 0.0) / np.maximum(den, TINY) ** 2 * mask
-        done = tol is not None and np.max(np.abs(p_new - p)) <= tol * np.max(np.abs(p))
+        p_new = _floor(xp, num, 0.0) / _floor(xp, den, TINY) ** 2 * mask
+        done = tol is not None and bool(xp.max(xp.abs(p_new - p)) <= tol * xp.max(xp.abs(p)))
         p = p_new
         if done:
             break
