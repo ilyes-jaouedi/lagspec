@@ -20,6 +20,11 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
+[project.urls]
+Homepage = "https://github.com/ilyes-jaouedi/lagspec"
+Documentation = "https://github.com/ilyes-jaouedi/lagspec/blob/main/docs/theory.md"
+Changelog = "https://github.com/ilyes-jaouedi/lagspec/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 array-api = ["array-api-compat>=1.9"]
 test = ["pytest>=7", "array-api-compat>=1.9", "array-api-strict>=2.2"]

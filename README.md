@@ -46,13 +46,13 @@ Planned: amplitude Capon / APES with spatial smoothing.
 ## Install
 
 ```
-pip install git+https://github.com/<user>/lagspec
+pip install git+https://github.com/ilyes-jaouedi/lagspec
 ```
 
 Requires Python 3.9+ and NumPy. For CuPy, PyTorch or other array-API libraries:
 
 ```
-pip install "lagspec[array-api] @ git+https://github.com/<user>/lagspec"
+pip install "lagspec[array-api] @ git+https://github.com/ilyes-jaouedi/lagspec"
 ```
 
 ## Example
