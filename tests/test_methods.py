@@ -48,3 +48,46 @@ def test_capon_and_music_resolve_two_sources():
 def test_music_rejects_bad_source_count():
     with pytest.raises(ValueError):
         music(np.eye(4), Lattice.ula(4), Grid.periodic(8), 4)
+
+
+def iaa_direct(R, lat, grid, n_iter, loading):
+    """IAA with explicit steering vectors (reference)"""
+    A = lat.steering(grid.points())  # (P, N)
+    n = A.shape[1]
+    norm = np.sum(np.abs(A[0]) ** 2)
+    q = lambda M: np.real(np.einsum("pi,...ij,pj->...p", A.conj(), M, A))  # noqa: E731
+    p = np.maximum(q(R), 0) / norm**2
+    for _ in range(n_iter):
+        Rm = np.einsum("...p,pi,pj->...ij", p, A, A.conj())
+        delta = loading * np.real(np.trace(Rm, axis1=-2, axis2=-1)) / n
+        Ri = np.linalg.inv(Rm + delta[..., None, None] * np.eye(n))
+        p = np.maximum(q(Ri @ R @ Ri), 0) / q(Ri) ** 2
+    return p.reshape(R.shape[:-2] + grid.shape)
+
+
+@pytest.mark.parametrize(
+    "lat, grid",
+    [
+        (Lattice.ula(8), Grid.periodic(64)),
+        (Lattice.ura(4, 4), Grid.periodic((16, 16))),
+        (Lattice.ura(4, 4, gains=np.exp(1j * np.linspace(-0.4, 0.4, 16))), Grid.linspace((-0.9, -0.9), (0.9, 0.9), (15, 13))),
+    ],
+)
+def test_iaa_matches_direct(lat, grid):
+    from lagspec import iaa
+
+    x = RNG.standard_normal((2, lat.n_elements, 6)) + 1j * RNG.standard_normal((2, lat.n_elements, 6))
+    R = covariance(x)
+    for m in ("auto", "matmul"):
+        np.testing.assert_allclose(iaa(R, lat, grid, n_iter=5, method=m), iaa_direct(R, lat, grid, 5, 1e-9), rtol=1e-6, atol=1e-12)
+
+
+def test_iaa_resolves_with_few_snapshots():
+    from lagspec import iaa
+
+    lat = Lattice.ula(10)
+    truth = np.array([-0.12, 0.12])  # 0.24 apart, beamwidth 2 / N = 0.2
+    R = covariance(snapshots(lat, truth, n_snap=4))  # rank 4 < N: Capon needs loading
+    grid = Grid.periodic(512)
+    p = iaa(R, lat, grid, n_iter=20)
+    np.testing.assert_allclose(two_peaks(p, grid.axis(0)), truth, atol=0.01)
