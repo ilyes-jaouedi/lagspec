@@ -26,7 +26,7 @@ def test_forward_and_adjoint_match_direct(axis, sign):
     E = direct_matrix(offsets, ax, sign)
     c = RNG.standard_normal((3, len(offsets))) + 1j * RNG.standard_normal((3, len(offsets)))
     y = RNG.standard_normal((3, ax[2])) + 1j * RNG.standard_normal((3, ax[2]))
-    methods = ["matmul", "fft"] if T.is_periodic(KAPPA, ax[1], ax[2]) else ["matmul"]
+    methods = ["matmul", "czt"] + (["fft"] if T.is_periodic(KAPPA, ax[1], ax[2]) else [])
     for m in methods + ["auto"]:
         np.testing.assert_allclose(T.forward(c, offsets, ax, KAPPA, sign, m), c @ E, atol=1e-10)
         np.testing.assert_allclose(T.adjoint(y, offsets, ax, KAPPA, sign, m), y @ E.T, atol=1e-10)
@@ -45,3 +45,15 @@ def test_adjoint_is_the_hermitian_adjoint():
 def test_unknown_method_rejected():
     with pytest.raises(ValueError):
         T.forward(np.ones(3), np.arange(3), AXES["zoom"], KAPPA, 1, "bogus")
+
+
+def test_czt_on_a_large_zoom():
+    """many offsets, fine non-periodic axis: the chirp-z path against the matrix product"""
+    ax = (0.11, 1e-4, 3001)
+    offsets = np.arange(-511, 512)
+    c = RNG.standard_normal((2, len(offsets))) + 1j * RNG.standard_normal((2, len(offsets)))
+    ref = T.forward(c, offsets, ax, KAPPA, 1, "matmul")
+    np.testing.assert_allclose(T.forward(c, offsets, ax, KAPPA, 1, "czt"), ref, atol=1e-8 * np.abs(ref).max())
+    y = ref
+    ref = T.adjoint(y, offsets, ax, KAPPA, -1, "matmul")
+    np.testing.assert_allclose(T.adjoint(y, offsets, ax, KAPPA, -1, "czt"), ref, atol=1e-8 * np.abs(ref).max())

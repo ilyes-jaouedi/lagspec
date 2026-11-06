@@ -5,9 +5,10 @@ uniform direction-cosine axis u_k = start + k * step, k = 0 .. K - 1:
     forward   y_k = sum_o c_o exp(sign j kappa o u_k)     (coefficients -> grid)
     adjoint   c_o = sum_k y_k exp(sign j kappa o u_k)     (grid -> coefficients)
 
-Each is computed by a small matrix product, or by an FFT when the axis covers one
-period of the series (kappa * step * K = 2 pi). The engine applies them one axis at a
-time on the last axis of an array.
+Each is computed by a small matrix product, by an FFT when the axis covers one period
+of the series (kappa * step * K = 2 pi), or by a chirp-z transform (Bluestein: three
+FFTs) on any uniform axis, e.g. a fine zoom on a sub-region with a large array. The
+engine applies them one axis at a time on the last axis of an array.
 """
 
 import numpy as np
@@ -16,10 +17,13 @@ import numpy as np
 # FFT_FACTOR * log2(grid size): below that, the small BLAS product is faster
 # (benchmarks/bench_quad.py)
 FFT_FACTOR = 8.0
+# method="auto" uses the chirp-z transform on a non-periodic axis when
+# n_offsets * grid size > CZT_FACTOR * L log2 L, L the FFT length (benchmarks/bench_czt.py)
+CZT_FACTOR = 8.0
 # largest 0/1 accumulation matrix (inputs x outputs entries) kept dense
 DENSE_LIMIT = 4_000_000
 
-METHODS = ("auto", "matmul", "fft")
+METHODS = ("auto", "matmul", "fft", "czt")
 
 
 def is_periodic(kappa, step, num):
@@ -36,9 +40,31 @@ def choose(method, kappa, axis, n_offsets):
         if not periodic:
             raise ValueError("method='fft' needs a periodic axis (see Grid.periodic)")
         return "fft"
-    if method == "auto" and periodic and n_offsets > FFT_FACTOR * np.log2(max(num, 2)):
-        return "fft"
-    return "matmul"
+    if method != "auto":
+        return method
+    if periodic:
+        return "fft" if n_offsets > FFT_FACTOR * np.log2(max(num, 2)) else "matmul"
+    L = _fft_length(n_offsets + num - 1)
+    return "czt" if n_offsets * num > CZT_FACTOR * L * np.log2(L) else "matmul"
+
+
+def _fft_length(n):
+    return 1 << int(np.ceil(np.log2(max(n, 2))))
+
+
+def _chirp(x, theta, n_out):
+    """y_j = sum_i x_i exp(j theta i j), j = 0 .. n_out - 1, along the last axis (Bluestein)"""
+    n_in = x.shape[-1]
+    L = _fft_length(n_in + n_out - 1)
+    i = np.arange(n_in, dtype=float)
+    a = np.zeros(x.shape[:-1] + (L,), dtype=complex)
+    a[..., :n_in] = x * np.exp(0.5j * theta * i**2)
+    m = np.arange(-(n_in - 1), n_out)
+    b = np.zeros(L, dtype=complex)
+    b[m % L] = np.exp(-0.5j * theta * m.astype(float) ** 2)  # i j = (i^2 + j^2 - (j - i)^2) / 2
+    conv = np.fft.ifft(np.fft.fft(a, axis=-1) * np.fft.fft(b), axis=-1)
+    j = np.arange(n_out, dtype=float)
+    return conv[..., :n_out] * np.exp(0.5j * theta * j**2)
 
 
 def _fft_sign(x, sign, axis=-1):
@@ -53,6 +79,11 @@ def forward(c, offsets, axis, kappa, sign, method):
     path = choose(method, kappa, axis, len(offsets))
     if path == "matmul":
         return c @ np.exp(sign * 1j * kappa * np.outer(offsets, start + step * np.arange(num)))
+    if path == "czt":
+        # o = o_0 + i: exp(j kappa o u_k) = exp(j kappa o_0 u_k) exp(j kappa i start) exp(j kappa step i k)
+        i = offsets - offsets[0]
+        y = _chirp(c * np.exp(sign * 1j * kappa * i * start), sign * kappa * step, num)
+        return y * np.exp(sign * 1j * kappa * offsets[0] * (start + step * np.arange(num)))
     # exp(j kappa o (start + k step)) = exp(j kappa o start) exp(j 2 pi o k / num)
     phased = c * np.exp(sign * 1j * kappa * offsets * start)
     out = np.zeros(c.shape[:-1] + (num,), dtype=complex)
@@ -71,6 +102,9 @@ def adjoint(y, offsets, axis, kappa, sign, method):
     path = choose(method, kappa, axis, len(offsets))
     if path == "matmul":
         return y @ np.exp(sign * 1j * kappa * np.outer(start + step * np.arange(num), offsets))
+    if path == "czt":
+        x = np.asarray(y, dtype=complex) * np.exp(sign * 1j * kappa * offsets[0] * step * np.arange(num))
+        return _chirp(x, sign * kappa * step, len(offsets)) * np.exp(sign * 1j * kappa * offsets * start)
     full = _fft_sign(np.asarray(y, dtype=complex), sign)
     return full[..., offsets % num] * np.exp(sign * 1j * kappa * offsets * start)
 
