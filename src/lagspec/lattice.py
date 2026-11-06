@@ -150,6 +150,21 @@ class Lattice:
         coef = self._pos_sum(y).reshape(y.shape[:-1] + self.pos_shape)
         return self._series(coef, self.pos_min, self.pos_shape, grid, -1, method, T.forward)
 
+    def covariance_from_spectrum(self, p, grid, method="auto"):
+        """
+        sum_k p_k a(u_k) a(u_k)^H over the grid points u_k: (..., *grid.shape) ->
+        (..., N, N). Entry (m, n) only depends on the lag p_n - p_m, so the grid sum is
+        one adjoint transform evaluated at the lags (the model covariance of IAA and
+        covariance-fitting methods).
+        """
+        c = self._series(p, self.lag_min, self.lag_shape, grid, -1, method, T.adjoint)
+        batch = c.shape[: c.ndim - self.ndim]
+        n = self.n_elements
+        R = c.reshape(batch + (-1,))[..., self._lag_index].reshape(batch + (n, n))
+        if self.gains is not None:
+            R = self.gains[:, None] * R * self.gains.conj()[None, :]
+        return R
+
     # -- direct reference -----------------------------------------------------------
 
     def steering(self, points):
@@ -170,6 +185,13 @@ class Lattice:
         """the same as linear, by explicit steering vectors"""
         y = np.asarray(y)
         return (y @ self.steering(grid.points()).conj().T).reshape(y.shape[:-1] + grid.shape)
+
+    def covariance_from_spectrum_direct(self, p, grid):
+        """the same as covariance_from_spectrum, by explicit steering vectors"""
+        p = np.asarray(p)
+        A = self.steering(grid.points())
+        flat = p.reshape(p.shape[: p.ndim - self.ndim] + (-1,))
+        return np.einsum("...p,pi,pj->...ij", flat, A, A.conj(), optimize=True)
 
     # -- helpers --------------------------------------------------------------------
 

@@ -118,3 +118,18 @@ def test_linear_matches_direct(name):
             ref = lat.linear_direct(y, grid)
             np.testing.assert_allclose(lat.linear(y, grid), ref, atol=1e-9 * np.abs(ref).max())
     np.testing.assert_allclose(lat0.linear(y, grids[0], "fft"), lat0.linear_direct(y, grids[0]), atol=1e-9 * np.abs(y).sum())
+
+
+@pytest.mark.parametrize("name", LATTICES)
+def test_covariance_from_spectrum_matches_direct(name):
+    lat0, grids = LATTICES[name]
+    g = np.exp(1j * RNG.uniform(-0.5, 0.5, lat0.n_elements)) * RNG.uniform(0.8, 1.2, lat0.n_elements)
+    for lat in (lat0, Lattice(lat0.positions, lat0.spacing, gains=g)):
+        for k, grid in enumerate(grids):
+            p = RNG.uniform(0, 1, (2,) + grid.shape)
+            ref = lat.covariance_from_spectrum_direct(p, grid)
+            methods = ["auto", "matmul"] + (["fft"] if k == 0 else [])
+            for m in methods:
+                R = lat.covariance_from_spectrum(p, grid, m)
+                np.testing.assert_allclose(R, ref, atol=1e-9 * np.abs(ref).max())
+            np.testing.assert_allclose(R, np.swapaxes(R.conj(), -1, -2), atol=1e-9 * np.abs(ref).max())
