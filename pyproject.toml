@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lagspec"
-version = "0.1.0"
-description = "Fast covariance-based spatial spectra (Bartlett, Capon, MUSIC) for arrays on a lattice, through lag sums over the difference co-array"
+version = "0.2.0"
+description = "Fast covariance-based spatial spectra (Bartlett, Capon, MUSIC, IAA) for arrays on a lattice, through lag sums over the difference co-array"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

@@ -10,6 +10,6 @@ from .grid import Grid, azel
 from .lattice import Lattice
 from .methods import bartlett, capon, covariance, iaa, music
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["Grid", "Lattice", "azel", "bartlett", "capon", "covariance", "iaa", "music", "__version__"]

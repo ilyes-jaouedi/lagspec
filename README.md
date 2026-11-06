@@ -13,19 +13,31 @@ a(u)ᴴ M a(u) = Σ_l L(l) exp(j κ l·u),   L(l) = Σ_{p_n − p_m = l} M[m, n]
 ```
 
 `lagspec` computes the lag sums L once per matrix and evaluates the series on the whole
-grid with a few small matrix products or one FFT. The result is **exact** on any grid
-uniform in direction cosines, and it costs about as much as a single beam scan instead of
-N² operations per grid point.
+grid with a few small matrix products, an FFT, or a chirp-z transform for a zoom. The
+result is **exact** on any grid uniform in direction cosines, and it costs about as much
+as a single beam scan instead of N² operations per grid point.
 
 ## Status
 
-v0.1: the lag-domain engine (1-D, 2-D, 3-D lattices, batches of matrices, per-element
-calibration gains), Bartlett, Capon with diagonal loading, and MUSIC. Every result is
-tested against the explicit steering-vector computation.
+v0.2:
 
-Planned: linear forms a(u)ᴴ y (for IAA and amplitude Capon / APES), IAA, a zoomed
-evaluation of a sub-region by the chirp-z transform, and array-API support (CuPy,
-PyTorch).
+- the lag-domain engine: 1-D, 2-D and 3-D lattices, batches of matrices, per-element
+  calibration gains, and three exact evaluation paths (matrix product, FFT on a full
+  period, chirp-z for a zoom), chosen automatically from measured crossovers;
+- quadratic forms a(u)ᴴ M a(u), linear forms a(u)ᴴ y, and the reverse operation
+  Σ_k p_k a(u_k) a(u_k)ᴴ (model covariance from a spectrum);
+- Bartlett, Capon with diagonal loading, MUSIC, and IAA.
+
+Every result is tested against the explicit steering-vector computation.
+
+| Benchmark (`benchmarks/`) | Speed-up vs explicit steering vectors |
+|---|---|
+| a(u)ᴴ M a(u), 4 × 4 array, 128 matrices, 61 × 61 grid | about 200–400× |
+| a(u)ᴴ M a(u), 256-element line, 4096-point grid | about 2000× |
+| IAA, 4 × 4 array, 32 matrices, 61 × 61 grid, 10 iterations | about 100× |
+
+Planned: amplitude Capon / APES with spatial smoothing, a manifold model with extra
+spatial harmonics (angle-dependent calibration), and array-API support (CuPy, PyTorch).
 
 ## Install
 
@@ -49,16 +61,18 @@ R = ls.covariance(x)                         # (128, 16, 16)
 
 p_capon = ls.capon(R, lat, grid, loading=1e-3)   # (128, 161, 121)
 p_music = ls.music(R, lat, grid, n_sources=2)
+p_iaa = ls.iaa(R[:8], lat, grid, n_iter=15)    # first 8 range bins
 az, el = ls.azel(*grid.mesh())               # angles of the grid points
 ```
 
-Any matrix can go through the engine directly: `lat.quad(M, grid)`.
+Any matrix or vector can go through the engine directly: `lat.quad(M, grid)`,
+`lat.linear(y, grid)`, `lat.covariance_from_spectrum(p, grid)`.
 
 ## How it works
 
 See [docs/theory.md](docs/theory.md): the lag sums, why a grid uniform in direction
-cosines makes the evaluation exact, the matrix-product and FFT paths, calibration gains,
-and the cost model.
+cosines makes the evaluation exact, the matrix-product, FFT and chirp-z paths,
+calibration gains, linear forms, the model covariance and IAA, and the cost model.
 
 ## Prior work
 
