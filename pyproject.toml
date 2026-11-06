@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lagspec"
+version = "0.1.0"
+description = "Fast covariance-based spatial spectra (Bartlett, Capon, MUSIC) for arrays on a lattice, through lag sums over the difference co-array"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Ilyes Jaouedi" }]
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.22"]
+keywords = ["array processing", "direction of arrival", "beamforming", "Capon", "MVDR", "MUSIC", "radar", "co-array"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lagspec"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
